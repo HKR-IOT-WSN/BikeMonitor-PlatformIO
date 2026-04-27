@@ -1,15 +1,50 @@
-#include <Arduino.h>
+#include "Arduino.h"
+#include "BluetoothSerial.h"
 
-// put function declarations here:
-int myFunction(int, int);
+
+
+hw_timer_t *myTimer = NULL;
+volatile int hallCounter = 0;
+volatile int speed = 0;   //cm per second
+
+int hallPin = 15;
+int hallVal = 0;
+
+void IRAM_ATTR onTimer() {
+  speed = hallCounter;
+  Serial.print("BikeSpeed:");
+  Serial.print(speed);
+  Serial.print("\n");
+  hallCounter = 0;
+
+}
+
+void ARDUINO_ISR_ATTR isr() {
+  ++hallCounter;
+}
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(115200);
+  pinMode(hallPin, INPUT);
+  attachInterrupt(hallPin, isr, FALLING);
+
+  myTimer = timerBegin(0, 80, true);    // 80MHa / 80 = 1MHz (1 microsecond per tick)
+  timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
+  timerAlarmWrite(myTimer, 10000000, true);
+  timerAlarmEnable(myTimer);
+
+
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  
+  // if (!digitalRead(hallPin)) {    // if sensing magnet
+  //   ++hallCounter;
+  // };
+
+
+
+
 }
 
 // put function definitions here:
