@@ -1,16 +1,34 @@
 #include "Arduino.h"
 #include <Wire.h>
 #include "MAX30105.h"
-
 #include "heartRate.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h>
 
+// Wifi details
+const char* ssid = "Galaxy";
+const char* password = "11111111";
 
+// HiveMQ details
+const char* mqtt_server = "5354c59752f44a4ea5c3bb486a43ac0e.s1.eu.hivemq.cloud";
+const int mqtt_port = 8883;
+const char* mqtt_user = "IoTWSNBikeMonitor";
+const char* mqtt_pass = "11111111aA";
+
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
+
+// Timer 0
 hw_timer_t *myTimer = NULL;
 volatile int hallCounter = 0;
-volatile int speed = 0;   //cm per second
+volatile int speed = 0;
+volatile bool mqtt_send = false;
 
+// Hall sensor
 int hallPin = 15;
 int hallVal = 0;
+RTC_DATA_ATTR int counter = 0;
 
 MAX30105 pulseSensor;
 const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
@@ -20,13 +38,52 @@ long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
 int beatAvg = 0;
 
+
+
+void setup_wifi() {
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to Wifi");
+  
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    Serial.print("Status:");
+    Serial.print(WiFi.status());
+    Serial.print("\n");
+  }
+
+  Serial.println("\nWiFi connected.");
+
+  espClient.setInsecure();        //??? Tell esp32 to trust the HiveMQ certificate
+}
+
+
+void mqtt_reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+
+    String clientId = "ESP32Client - peiben";
+
+    if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
+      Serial.print("Connected!");
+    } else {
+      Serial.print("Failed, rc=");
+      Serial.print(client.state());
+      Serial.println("Try again in 2 seconds");
+      delay(2000);
+    }
+  }
+}
+
+
 void IRAM_ATTR onTimer() {
-  speed = hallCounter;
+  speed = hallCounter;            // edit speed here with circumference
   Serial.print("BikeSpeed:");
   Serial.print(speed);
   Serial.print("\n");
   hallCounter = 0;
-
+  
+  mqtt_send = true;
 }
 
 void ARDUINO_ISR_ATTR isr() {
@@ -62,6 +119,9 @@ void setup() {
   pinMode(hallPin, INPUT);
   attachInterrupt(hallPin, isr, FALLING);
 
+  setup_wifi();
+  client.setServer(mqtt_server, mqtt_port);
+
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
   timerAlarmWrite(myTimer, 10000000, true);
@@ -79,15 +139,23 @@ void setup() {
 
 void loop() {
   
-  // if (!digitalRead(hallPin)) {    // if sensing magnet
-  //   ++hallCounter;
-  // };
+  if (!client.connected()) {
+    mqtt_reconnect();
+  }
+
+  if (mqtt_send) {
+    mqtt_send = false;
+    String payload = String(speed) + " " + String(++counter) + " "
+                  + String(beatsPerMinute) + " " + String(beatAvg) + " "
+                  + String(pulseSensor.getIR()); 
+    client.publish("data/speed,counter,beats/min,avg,IR", payload.c_str());
+  }
 
   calcBPM();
-  Serial.print(">BPM:");
-  Serial.println(beatsPerMinute);
-  Serial.print(">Avg BPM:");
-  Serial.println(beatAvg);
-  Serial.print(">IR:");
-  Serial.println(pulseSensor.getIR());
+  // Serial.print(">BPM:");
+  // Serial.println(beatsPerMinute);
+  // Serial.print(">Avg BPM:");
+  // Serial.println(beatAvg);
+  // Serial.print(">IR:");
+  // Serial.println(pulseSensor.getIR());
 }
