@@ -86,6 +86,8 @@ void loop() {
   calcBPM();
   Serial.print(">BPM:");
   Serial.println(beatsPerMinute);
+  Serial.print(">Avg BPM:");
+  Serial.println(beatAvg);
   Serial.print(">IR:");
   Serial.println(pulseSensor.getIR());
 }
