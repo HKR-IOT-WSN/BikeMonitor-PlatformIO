@@ -74,7 +74,7 @@ void setup() {
   }
   Serial.println("Place your index finger on the sensor with steady pressure.");
 
-  pulseSensor.setup(20, 2, 2, 3200, 118, 2048); //Configure sensor with 4mA LED current, 2-sample averaging, both red & IR LED, max sample rate, 118µs pulse width (16 bit res.), min ADC range
+  pulseSensor.setup(20, 4, 2, 3200, 118, 2048); //Configure sensor with 4mA LED current, 4-sample averaging, both red & IR LED, max sample rate, 118µs pulse width (16 bit res.), min ADC range
 }
 
 void loop() {
