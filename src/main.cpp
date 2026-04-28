@@ -6,6 +6,8 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 
+#define WIFI
+
 // Wifi details
 const char* ssid = "Galaxy";
 const char* password = "11111111";
@@ -119,8 +121,10 @@ void setup() {
   pinMode(hallPin, INPUT);
   attachInterrupt(hallPin, isr, FALLING);
 
+  #ifdef WIFI
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  #endif
 
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
@@ -139,7 +143,8 @@ void setup() {
 }
 
 void loop() {
-  
+
+  #ifdef WIFI
   if (!client.connected()) {
     mqtt_reconnect();
   }
@@ -151,12 +156,13 @@ void loop() {
                   + String(pulseSensor.getIR()); 
     client.publish("data/speed,counter,beats/min,avg,IR", payload.c_str());
   }
+  #endif
 
   calcBPM();
-  // Serial.print(">BPM:");
-  // Serial.println(beatsPerMinute);
-  // Serial.print(">Avg BPM:");
-  // Serial.println(beatAvg);
-  // Serial.print(">IR:");
-  // Serial.println(pulseSensor.getIR());
+  Serial.print(">BPM:");
+  Serial.println(beatsPerMinute);
+  Serial.print(">Avg BPM:");
+  Serial.println(beatAvg);
+  Serial.print(">IR:");
+  Serial.println(pulseSensor.getIR());
 }
