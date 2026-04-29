@@ -6,7 +6,7 @@
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
 
-#define WIFI
+//#define WIFI
 
 // Wifi details
 const char* ssid = "Galaxy";
@@ -138,7 +138,7 @@ void setup() {
   }
   Serial.println("Place your index finger on the sensor with steady pressure.");
 
-  pulseSensor.setup(60, 4, 2, 400, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
+  pulseSensor.setup(60, 4, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
   pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
 }
 
