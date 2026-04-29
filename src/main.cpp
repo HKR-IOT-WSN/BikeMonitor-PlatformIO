@@ -5,8 +5,9 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
+#include <math.h>
 
-//#define WIFI
+#define WIFI
 
 // Wifi details
 const char* ssid = "Galaxy";
@@ -23,8 +24,12 @@ PubSubClient client(espClient);
 
 // Timer 0
 hw_timer_t *myTimer = NULL;
+const int timer_interval = 5;
+const int tire_diameter_cm = 100 / PI;
+const float tire_circum_km = tire_diameter_cm * PI / 100000;
 volatile int hallCounter = 0;
-volatile int speed = 0;
+volatile float distance_km = 0;
+volatile float speed_kph = 0;
 volatile bool mqtt_send = false;
 
 // Hall sensor
@@ -79,10 +84,16 @@ void mqtt_reconnect() {
 
 
 void IRAM_ATTR onTimer() {
-  speed = hallCounter;            // edit speed here with circumference
-  Serial.print("BikeSpeed:");
-  Serial.print(speed);
-  Serial.print("\n");
+
+  float distance_increase_km = hallCounter * tire_circum_km;
+  distance_km += distance_increase_km;
+  speed_kph = distance_increase_km / timer_interval * 3600;            // calculate speed here with circumference
+  Serial.print(">Speed:");
+  Serial.println(speed_kph);
+  Serial.print(">Distance:");
+  Serial.println(distance_km);
+  Serial.print(">hallCounter:");
+  Serial.println(hallCounter);
   hallCounter = 0;
   
   mqtt_send = true;
@@ -124,11 +135,12 @@ void setup() {
   #ifdef WIFI
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  client.publish("data/debug", "STARTING UP...");
   #endif
 
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
-  timerAlarmWrite(myTimer, 10000000, true);
+  timerAlarmWrite(myTimer, timer_interval * 1000000, true);
   timerAlarmEnable(myTimer);
 
    // Pulse sensor
@@ -151,10 +163,12 @@ void loop() {
 
   if (mqtt_send) {
     mqtt_send = false;
-    String payload = String(speed) + " " + String(++counter) + " "
-                  + String(beatsPerMinute) + " " + String(beatAvg) + " "
-                  + String(pulseSensor.getIR()); 
-    client.publish("data/speed,counter,beats/min,avg,IR", payload.c_str());
+    //String json = "{\"speed\":" + String(speed_kph) + ",\"bpm\":" + String(beatsPerMinute) + ",\"bpmAvg\":" + String(beatAvg) + "}";
+    //client.publish("data/json", json.c_str());
+    client.publish("data/distance", String(distance_km, 3).c_str());
+    client.publish("data/speed", String(speed_kph, 1).c_str());
+    client.publish("data/bpm", String(beatsPerMinute, 0).c_str());
+    client.publish("data/bpmAvg", String(beatAvg).c_str());
   }
   #endif
 
