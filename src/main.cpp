@@ -9,6 +9,8 @@
 
 #define WIFI
 
+RTC_DATA_ATTR bool startup_message_sent = false;
+
 // Wifi details
 const char* ssid = "Galaxy";
 const char* password = "11111111";
@@ -28,14 +30,13 @@ const int timer_interval = 5;
 const int tire_diameter_cm = 100 / PI;
 const float tire_circum_km = tire_diameter_cm * PI / 100000;
 volatile int hallCounter = 0;
-volatile float distance_km = 0;
+RTC_DATA_ATTR volatile float distance_km = 0;
 volatile float speed_kph = 0;
 volatile bool mqtt_send = false;
 
 // Hall sensor
 int hallPin = 15;
 int hallVal = 0;
-RTC_DATA_ATTR int counter = 0;
 
 MAX30105 pulseSensor;
 const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
@@ -135,7 +136,6 @@ void setup() {
   #ifdef WIFI
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
-  client.publish("data/debug", "STARTING UP...");
   #endif
 
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
@@ -159,6 +159,11 @@ void loop() {
   #ifdef WIFI
   if (!client.connected()) {
     mqtt_reconnect();
+  }
+
+  if (!startup_message_sent) {
+    client.publish("data/debug", "STARTED UP...");
+    startup_message_sent = true;
   }
 
   if (mqtt_send) {
