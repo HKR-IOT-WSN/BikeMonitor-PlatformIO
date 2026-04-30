@@ -1,7 +1,7 @@
-#include "Arduino.h"
+#include <Arduino.h>
 #include <Wire.h>
-#include "MAX30105.h"
-#include "heartRate.h"
+#include <MAX30105.h>
+#include <heartRate.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
@@ -9,7 +9,7 @@
 
 #define WIFI
 
-RTC_DATA_ATTR bool startup_message_sent = false;
+bool startup_message_sent = false;
 
 // Wifi details
 const char* ssid = "Galaxy";
@@ -30,12 +30,12 @@ const int timer_interval = 5;
 const int tire_diameter_cm = 100 / PI;
 const float tire_circum_km = tire_diameter_cm * PI / 100000;
 volatile int hallCounter = 0;
-RTC_DATA_ATTR volatile float distance_km = 0;
+volatile float distance_km = 0;
 volatile float speed_kph = 0;
 volatile bool mqtt_send = false;
 
 // Hall sensor
-int hallPin = 15;
+int hallPin = 16;
 int hallVal = 0;
 
 MAX30105 pulseSensor;
@@ -142,16 +142,21 @@ void setup() {
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
   timerAlarmWrite(myTimer, timer_interval * 1000000, true);
   timerAlarmEnable(myTimer);
-
+  
    // Pulse sensor
+   Wire.setTimeOut(10);
+   Wire.setTimeout(10);
   if (!pulseSensor.begin(Wire, I2C_SPEED_FAST)) { //Use default I2C port, 400kHz speed
     Serial.println("MAX30105 was not found. Please check wiring/power. ");
     while (1);
   }
   Serial.println("Place your index finger on the sensor with steady pressure.");
 
+  pinMode(21, INPUT_PULLUP);
+  pinMode(22, INPUT_PULLUP);
   pulseSensor.setup(60, 4, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
   pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
+
 }
 
 void loop() {
