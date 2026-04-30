@@ -26,12 +26,7 @@ PubSubClient client(espClient);
 
 // Timer 0
 hw_timer_t *myTimer = NULL;
-const int timer_interval = 5;
-const int tire_diameter_cm = 100 / PI;
-const float tire_circum_km = tire_diameter_cm * PI / 100000;
-volatile int hallCounter = 0;
-volatile float distance_km = 0;
-volatile float speed_kph = 0;
+volatile int hallCount = 0;
 volatile bool mqtt_send = false;
 
 // Hall sensor
@@ -54,15 +49,24 @@ void setup_wifi() {
   
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
-    Serial.print("Status:");
-    Serial.print(WiFi.status());
-    Serial.print("\n");
+    Serial.print(".Status:");
+    Serial.println(WiFi.status());
   }
 
   Serial.println("\nWiFi connected.");
 
   espClient.setInsecure();        //??? Tell esp32 to trust the HiveMQ certificate
+}
+
+void setup_pulseSensor() {
+  if (!pulseSensor.begin(Wire, I2C_SPEED_FAST)) { //Use default I2C port, 400kHz speed
+    Serial.println("MAX30105 was not found. Please check wiring/power. ");
+    while (1);
+  }
+  Serial.println("Place your index finger on the sensor with steady pressure.");
+
+  pulseSensor.setup(60, 4, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
+  pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
 }
 
 
@@ -85,23 +89,11 @@ void mqtt_reconnect() {
 
 
 void IRAM_ATTR onTimer() {
-
-  float distance_increase_km = hallCounter * tire_circum_km;
-  distance_km += distance_increase_km;
-  speed_kph = distance_increase_km / timer_interval * 3600;            // calculate speed here with circumference
-  Serial.print(">Speed:");
-  Serial.println(speed_kph);
-  Serial.print(">Distance:");
-  Serial.println(distance_km);
-  Serial.print(">hallCounter:");
-  Serial.println(hallCounter);
-  hallCounter = 0;
-  
   mqtt_send = true;
 }
 
 void ARDUINO_ISR_ATTR isr() {
-  ++hallCounter;
+  ++hallCount;
 }
 
 void calcBPM() {
@@ -140,22 +132,10 @@ void setup() {
 
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
-  timerAlarmWrite(myTimer, timer_interval * 1000000, true);
+  timerAlarmWrite(myTimer, 5 * 1000000, true);
   timerAlarmEnable(myTimer);
   
-   // Pulse sensor
-   Wire.setTimeOut(10);
-   Wire.setTimeout(10);
-  if (!pulseSensor.begin(Wire, I2C_SPEED_FAST)) { //Use default I2C port, 400kHz speed
-    Serial.println("MAX30105 was not found. Please check wiring/power. ");
-    while (1);
-  }
-  Serial.println("Place your index finger on the sensor with steady pressure.");
-
-  pinMode(21, INPUT_PULLUP);
-  pinMode(22, INPUT_PULLUP);
-  pulseSensor.setup(60, 4, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
-  pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
+  setup_pulseSensor();
 
 }
 
@@ -173,12 +153,10 @@ void loop() {
 
   if (mqtt_send) {
     mqtt_send = false;
-    //String json = "{\"speed\":" + String(speed_kph) + ",\"bpm\":" + String(beatsPerMinute) + ",\"bpmAvg\":" + String(beatAvg) + "}";
-    //client.publish("data/json", json.c_str());
-    client.publish("data/distance", String(distance_km, 3).c_str());
-    client.publish("data/speed", String(speed_kph, 1).c_str());
+    client.publish("data/hallCount", String(hallCount).c_str());
     client.publish("data/bpm", String(beatsPerMinute, 0).c_str());
     client.publish("data/bpmAvg", String(beatAvg).c_str());
+    hallCount = 0;
   }
   #endif
 
