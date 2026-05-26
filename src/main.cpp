@@ -31,7 +31,7 @@ hw_timer_t *pulseTimer = NULL;
 volatile int hallCount = 0;
 volatile bool mqtt_send_hallCount = false;
 volatile bool mqtt_send_pulse = false;
-
+volatile float angularSpeed = 0;  //angular speed = regular speed / wheel diameter
 
 // Hall sensor
 int hallPin = 16;
@@ -104,6 +104,9 @@ void IRAM_ATTR onPulseTimer() {
 
 void ARDUINO_ISR_ATTR isr() {
   ++hallCount;
+  static long lastHallPulse = 0;
+  angularSpeed = 2.0 * PI * 1000.0 / (millis() - lastHallPulse);
+  lastHallPulse = millis();
 }
 
 void calcBPM() {
@@ -208,6 +211,7 @@ void loop() {
   if (mqtt_send_hallCount) {
     mqtt_send_hallCount = false;
     client.publish("data/hallCount", String(hallCount).c_str());
+    client.publish("data/angularSpeed", String(angularSpeed, 3).c_str());
     hallCount = 0;
   }
 
