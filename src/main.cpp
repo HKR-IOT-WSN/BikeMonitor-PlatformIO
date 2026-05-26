@@ -40,6 +40,7 @@ uint8_t rateSpot = 0;
 long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
 float beatAvg = 0;
+uint32_t pulseSensorIr = 0;
 
 
 
@@ -98,8 +99,8 @@ void ARDUINO_ISR_ATTR isr() {
 
 void calcBPM() {
   static bool increasing = false;
-  uint32_t irCur = pulseSensor.getIR();
-  static uint32_t irPrev = irCur;
+  pulseSensorIr = pulseSensor.getIR();
+  static uint32_t irPrev = pulseSensorIr;
   static unsigned long lastBeat = millis();
   
   // Detect change in direction of the IR waveform. There are two such changes per beat.
@@ -107,12 +108,12 @@ void calcBPM() {
   // between two adjacent maxima is used to calculate the BPM.
   if (increasing) {
     // maximum detected, count as beat
-    if (irCur < irPrev) {
+    if (pulseSensorIr < irPrev) {
       increasing = false;
       Serial.println(">DIRECTION:0");
 
       const unsigned long now = millis();
-      beatsPerMinute = beatAvg = 60000.0 / (now - lastBeat);
+      beatsPerMinute = 60000.0 / (now - lastBeat);
       lastBeat = now;
 
       rates[rateSpot++] = beatsPerMinute; //Store this reading in the array
@@ -126,15 +127,13 @@ void calcBPM() {
     }
   }
   else {
-    if (irCur > irPrev) {
+    if (pulseSensorIr > irPrev) {
       increasing = true;
       Serial.println(">DIRECTION:1");
     }
   }
 
-  irPrev = irCur;
-  Serial.print(">IR:");
-  Serial.println(irCur);
+  irPrev = pulseSensorIr;
 }
 
 /*
@@ -208,5 +207,6 @@ void loop() {
   Serial.println(beatsPerMinute);
   Serial.print(">Avg BPM:");
   Serial.println(beatAvg);
-  //Don't read pulse sensor here. Its IR value is read and printed in calcBPM().
+    Serial.print(">IR:");
+  Serial.println(pulseSensorIr);
 }
