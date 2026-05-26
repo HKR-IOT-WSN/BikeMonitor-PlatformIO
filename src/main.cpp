@@ -38,9 +38,9 @@ int hallPin = 16;
 int hallVal = 0;
 
 MAX30105 pulseSensor;
-const uint8_t RATE_SIZE = 10; //Increase this for more averaging. 4 is good.
-float rates[RATE_SIZE]; //Array of heart rates
-uint8_t rateSpot = 0;
+const uint8_t BEAT_TIMES_SIZE = 10; //Increase this for more averaging. 4 is good.
+unsigned long beatTimes[BEAT_TIMES_SIZE]; //Circular array of beat times
+uint8_t oldestBeatTimePos = 0; //index of oldest beat time
 long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
 float beatAvg = 0;
@@ -123,14 +123,9 @@ void calcBPM() {
       beatsPerMinute = 60000.0 / (now - lastBeat);
       lastBeat = now;
 
-      rates[rateSpot++] = beatsPerMinute; //Store this reading in the array
-      rateSpot %= RATE_SIZE; //Wrap variable
-
-      //Take average of readings
-      beatAvg = 0;
-      for (uint8_t x = 0 ; x < RATE_SIZE ; x++)
-        beatAvg += rates[x];
-      beatAvg /= RATE_SIZE;
+      beatAvg = 60000.0 / ((now - beatTimes[oldestBeatTimePos]) / BEAT_TIMES_SIZE);  //calculate avg bpm from average time between the last BEAT_TIMES_SIZE beats
+      beatTimes[oldestBeatTimePos++] = now; //overwrite oldest beat time
+      oldestBeatTimePos %= BEAT_TIMES_SIZE; //Wrap variable
     }
   }
   else {
