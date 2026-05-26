@@ -34,13 +34,12 @@ int hallPin = 16;
 int hallVal = 0;
 
 MAX30105 pulseSensor;
-const int BEAT_THRESHOLD = 500;
-const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
-byte rates[RATE_SIZE]; //Array of heart rates
-byte rateSpot = 0;
+const uint8_t RATE_SIZE = 10; //Increase this for more averaging. 4 is good.
+float rates[RATE_SIZE]; //Array of heart rates
+uint8_t rateSpot = 0;
 long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
-int beatAvg = 0;
+float beatAvg = 0;
 
 
 
@@ -66,7 +65,7 @@ void setup_pulseSensor() {
   }
   Serial.println("Place your index finger on the sensor with steady pressure.");
 
-  pulseSensor.setup(60, 4, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 4-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
+  pulseSensor.setup(60, 16, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 16-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
   pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
 }
 
@@ -97,6 +96,47 @@ void ARDUINO_ISR_ATTR isr() {
   ++hallCount;
 }
 
+void calcBPM() {
+  static bool increasing = false;
+  uint32_t irCur = pulseSensor.getIR();
+  static uint32_t irPrev = irCur;
+  static unsigned long lastBeat = millis();
+  const unsigned long delta = millis() - lastBeat;
+  
+  // Detect change in direction of the IR waveform. There are two such changes per beat.
+  // Each maximum (slopes changes from up to down) counts as a beat, and the time difference
+  // between two adjacent maxima is used to calculate the BPM.
+  if (increasing) {
+    // maximum detected, count as beat
+    if (irCur < irPrev) {
+      increasing = false;
+      Serial.println(">DIRECTION:0");
+
+      const unsigned long now = millis();
+      beatsPerMinute = beatAvg = 60000.0 / (now - lastBeat);
+      lastBeat = now;
+
+      rates[rateSpot++] = beatsPerMinute; //Store this reading in the array
+      rateSpot %= RATE_SIZE; //Wrap variable
+
+      //Take average of readings
+      beatAvg = 0;
+      for (uint8_t x = 0 ; x < RATE_SIZE ; x++)
+        beatAvg += rates[x];
+      beatAvg /= RATE_SIZE;
+    }
+  }
+  else {
+    if (irCur > irPrev) {
+      increasing = true;
+      Serial.println(">DIRECTION:1");
+    }
+  }
+
+  irPrev = irCur;
+}
+
+/*
 void calcBPMOld() {
   long irValue = pulseSensor.getIR();
 
@@ -119,9 +159,10 @@ void calcBPMOld() {
     }
   }
 }
+ */
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(921600);
   Serial.println("Test");
   pinMode(hallPin, INPUT);
   attachInterrupt(hallPin, isr, FALLING);
@@ -133,7 +174,7 @@ void setup() {
 
   myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
-  timerAlarmWrite(myTimer, 5 * 1000000, true);
+  timerAlarmWrite(myTimer, 2 * 1000000, true);
   timerAlarmEnable(myTimer);
   
   setup_pulseSensor();
@@ -156,7 +197,7 @@ void loop() {
     mqtt_send = false;
     client.publish("data/hallCount", String(hallCount).c_str());
     client.publish("data/bpm", String(beatsPerMinute, 0).c_str());
-    client.publish("data/bpmAvg", String(beatAvg).c_str());
+    client.publish("data/bpmAvg", String(beatAvg, 0).c_str());
     hallCount = 0;
   }
   #endif
