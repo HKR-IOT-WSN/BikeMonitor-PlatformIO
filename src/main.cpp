@@ -45,6 +45,8 @@ long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
 float beatAvg = 0;
 uint32_t pulseSensorIr = 0;
+const int fCutoff = 1000;
+const int fSample = 1 / (411 * 0.000001 * 32);  //Each sensor sample is the average of 32 raw samples, each of which takes 411µs to create
 
 
 void setup_wifi() {
@@ -106,7 +108,8 @@ void ARDUINO_ISR_ATTR isr() {
 
 void calcBPM() {
   static bool increasing = false;
-  pulseSensorIr = pulseSensor.getIR();
+  static const float LPF_Beta = (1.0 / fSample) / ((1.0 / fSample) + (1.0 / (2*PI*fCutoff)));
+  pulseSensorIr = pulseSensorIr - (LPF_Beta * (pulseSensorIr - pulseSensor.getIR()));  //low-pass filter the infrared signal to remove noise
   static uint32_t irPrev = pulseSensorIr;
   static unsigned long lastBeat = millis();
   
@@ -219,6 +222,6 @@ void loop() {
   Serial.println(beatsPerMinute);
   Serial.print(">Avg BPM:");
   Serial.println(beatAvg);
-    Serial.print(">IR:");
+  Serial.print(">IR:");
   Serial.println(pulseSensorIr);
 }
