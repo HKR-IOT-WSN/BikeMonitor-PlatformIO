@@ -24,10 +24,14 @@ const char* mqtt_pass = "11111111aA";
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
-// Timer 0
+// Timer 0 & 1
 hw_timer_t *myTimer = NULL;
+hw_timer_t *pulseTimer = NULL;
+
 volatile int hallCount = 0;
-volatile bool mqtt_send = false;
+volatile bool mqtt_send_hallCount = false;
+volatile bool mqtt_send_pulse = false;
+
 
 // Hall sensor
 int hallPin = 16;
@@ -41,7 +45,6 @@ long lastBeat = 0; //Time at which the last beat occurred
 float beatsPerMinute = 0;
 float beatAvg = 0;
 uint32_t pulseSensorIr = 0;
-
 
 
 void setup_wifi() {
@@ -90,7 +93,11 @@ void mqtt_reconnect() {
 
 
 void IRAM_ATTR onTimer() {
-  mqtt_send = true;
+  mqtt_send_hallCount = true;
+}
+
+void IRAM_ATTR onPulseTimer() {
+  mqtt_send_pulse = true;
 }
 
 void ARDUINO_ISR_ATTR isr() {
@@ -167,11 +174,18 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   #endif
 
-  myTimer = timerBegin(0, 80, true);    // 80MHz / 80 = 1MHz (1 microsecond per tick)
+  // HallCount timer setup
+  myTimer = timerBegin(0, 80, true);    // Timer 0: 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
   timerAlarmWrite(myTimer, 2 * 1000000, true);
   timerAlarmEnable(myTimer);
-  
+
+  // Pulse timer setup
+  pulseTimer = timerBegin(1, 80, true); // Timer 1
+  timerAttachInterrupt(pulseTimer, &onPulseTimer, true);
+  timerAlarmWrite(pulseTimer, 0.125 * 1000000, true);
+  timerAlarmEnable(pulseTimer);
+
   setup_pulseSensor();
 
 }
@@ -188,12 +202,15 @@ void loop() {
     startup_message_sent = true;
   }
 
-  if (mqtt_send) {
-    mqtt_send = false;
+  if (mqtt_send_hallCount) {
+    mqtt_send_hallCount = false;
     client.publish("data/hallCount", String(hallCount).c_str());
+    hallCount = 0;
+  }
+
+  if (mqtt_send_pulse) {
     client.publish("data/bpm", String(beatsPerMinute, 0).c_str());
     client.publish("data/bpmAvg", String(beatAvg, 0).c_str());
-    hallCount = 0;
   }
   #endif
 
