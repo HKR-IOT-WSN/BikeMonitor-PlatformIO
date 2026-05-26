@@ -12,8 +12,8 @@
 bool startup_message_sent = false;
 
 // Wifi details
-const char* ssid = "Galaxy";
-const char* password = "11111111";
+const char* ssid = "ben";
+const char* password = "bbbbbbbb";
 
 // HiveMQ details
 const char* mqtt_server = "5354c59752f44a4ea5c3bb486a43ac0e.s1.eu.hivemq.cloud";
@@ -34,6 +34,7 @@ int hallPin = 16;
 int hallVal = 0;
 
 MAX30105 pulseSensor;
+const int BEAT_THRESHOLD = 500;
 const byte RATE_SIZE = 4; //Increase this for more averaging. 4 is good.
 byte rates[RATE_SIZE]; //Array of heart rates
 byte rateSpot = 0;
@@ -96,7 +97,7 @@ void ARDUINO_ISR_ATTR isr() {
   ++hallCount;
 }
 
-void calcBPM() {
+void calcBPMOld() {
   long irValue = pulseSensor.getIR();
 
   if (checkForBeat(irValue) == true) {
