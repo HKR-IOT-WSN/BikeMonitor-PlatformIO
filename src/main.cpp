@@ -182,7 +182,7 @@ void setup() {
   // HallCount timer setup
   myTimer = timerBegin(0, 80, true);    // Timer 0: 80MHz / 80 = 1MHz (1 microsecond per tick)
   timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
-  timerAlarmWrite(myTimer, 2 * 1000000, true);
+  timerAlarmWrite(myTimer, 4 * 1000000, true);
   timerAlarmEnable(myTimer);
 
   // Pulse timer setup
