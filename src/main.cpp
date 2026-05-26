@@ -65,7 +65,7 @@ void setup_pulseSensor() {
   }
   Serial.println("Place your index finger on the sensor with steady pressure.");
 
-  pulseSensor.setup(60, 16, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 16-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
+  pulseSensor.setup(60, 32, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 32-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
   pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
 }
 
@@ -101,7 +101,6 @@ void calcBPM() {
   uint32_t irCur = pulseSensor.getIR();
   static uint32_t irPrev = irCur;
   static unsigned long lastBeat = millis();
-  const unsigned long delta = millis() - lastBeat;
   
   // Detect change in direction of the IR waveform. There are two such changes per beat.
   // Each maximum (slopes changes from up to down) counts as a beat, and the time difference
@@ -134,6 +133,8 @@ void calcBPM() {
   }
 
   irPrev = irCur;
+  Serial.print(">IR:");
+  Serial.println(irCur);
 }
 
 /*
@@ -207,6 +208,5 @@ void loop() {
   Serial.println(beatsPerMinute);
   Serial.print(">Avg BPM:");
   Serial.println(beatAvg);
-  Serial.print(">IR:");
-  Serial.println(pulseSensor.getIR());
+  //Don't read pulse sensor here. Its IR value is read and printed in calcBPM().
 }
