@@ -129,7 +129,7 @@ void calcBPM() {
       beatsPerMinute = 60000.0 / (now - lastBeat);
       lastBeat = now;
 
-      beatAvg = 60000.0 / ((now - beatTimes[oldestBeatTimePos]) / BEAT_TIMES_SIZE);  //calculate avg bpm from average time between the last BEAT_TIMES_SIZE beats
+      beatAvg = 60000.0 / ( (float) (now - beatTimes[oldestBeatTimePos]) / BEAT_TIMES_SIZE);  //calculate avg bpm from average time between the last BEAT_TIMES_SIZE beats
       beatTimes[oldestBeatTimePos++] = now; //overwrite oldest beat time
       oldestBeatTimePos %= BEAT_TIMES_SIZE; //Wrap variable
     }
