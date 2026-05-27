@@ -105,7 +105,7 @@ void IRAM_ATTR onPulseTimer() {
 void ARDUINO_ISR_ATTR isr() {
   ++hallCount;
   static long lastHallPulse = 0;
-  angularSpeed = 2.0 * PI * 1000.0 / (millis() - lastHallPulse);
+  angularSpeed = PI * 1000.0 / (millis() - lastHallPulse);
   lastHallPulse = millis();
 }
 
