@@ -44,13 +44,6 @@ hw_timer_t *pulseTimer = NULL;
 volatile int hallCount = 0;
 int hallPin = 16;
 
-// Wheel metrics constant
-const float WHEEL_CIRCUMFERENCE = 0.65; // in meter
-
-// volatile bool mqtt_send_hallCount = false;
-// volatile bool mqtt_send_pulse = false;
-// volatile float angularSpeed = 0;  //angular speed = regular speed / wheel diameter
-// int hallVal = 0;
 
 // Pulse sensor config 
 MAX30105 pulseSensor;
@@ -197,34 +190,6 @@ void setup_pulseSensor() {
   pulseSensor.setup(60, 32, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 32-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
   pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
 }
-
-
-
-
-/*
-void calcBPMOld() {
-  long irValue = pulseSensor.getIR();
-
-  if (checkForBeat(irValue) == true) {
-    //We sensed a beat!
-    long delta = millis() - lastBeat;
-    lastBeat = millis();
-
-    beatsPerMinute = 60 / (delta / 1000.0);
-
-    if (beatsPerMinute < 255 && beatsPerMinute > 20) {
-      rates[rateSpot++] = (byte)beatsPerMinute; //Store this reading in the array
-      rateSpot %= RATE_SIZE; //Wrap variable
-
-      //Take average of readings
-      beatAvg = 0;
-      for (byte x = 0 ; x < RATE_SIZE ; x++)
-        beatAvg += rates[x];
-      beatAvg /= RATE_SIZE;
-    }
-  }
-}
- */
 
 void setup() {
   Serial.begin(921600);
