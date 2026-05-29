@@ -9,8 +9,6 @@
 
 #define WIFI
 
-bool startup_message_sent = false;
-
 // Wifi details
 const char* ssid = "ben";
 const char* password = "bbbbbbbb";
@@ -24,19 +22,37 @@ const char* mqtt_pass = "11111111aA";
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
+// Shared structs for thread-safe communication
+struct HallData {
+  int count;
+};
+
+struct PulseData {
+  float bpm;
+  float bpmAvg;
+};
+
+// Queue handles
+QueueHandle_t hallQueue;
+QueueHandle_t pulseQueue;
+TaskHandle_t MQTTTaskHandle;
+
 // Timer 0 & 1
 hw_timer_t *myTimer = NULL;
 hw_timer_t *pulseTimer = NULL;
 
 volatile int hallCount = 0;
-volatile bool mqtt_send_hallCount = false;
-volatile bool mqtt_send_pulse = false;
-volatile float angularSpeed = 0;  //angular speed = regular speed / wheel diameter
-
-// Hall sensor
 int hallPin = 16;
-int hallVal = 0;
 
+// Wheel metrics constant
+const float WHEEL_CIRCUMFERENCE = 0.65; // in meter
+
+// volatile bool mqtt_send_hallCount = false;
+// volatile bool mqtt_send_pulse = false;
+// volatile float angularSpeed = 0;  //angular speed = regular speed / wheel diameter
+// int hallVal = 0;
+
+// Pulse sensor config 
 MAX30105 pulseSensor;
 const uint8_t BEAT_TIMES_SIZE = 10; //Increase this for more averaging. 4 is good.
 unsigned long beatTimes[BEAT_TIMES_SIZE]; //Circular array of beat times
@@ -48,67 +64,42 @@ uint32_t pulseSensorIr = 0;
 const int fCutoff = 1000;
 const int fSample = 1 / (411 * 0.000001 * 32);  //Each sensor sample is the average of 32 raw samples, each of which takes 411µs to create
 
+// --------- CORE 1 ISR ---------
+void ARDUINO_ISR_ATTR magnetIsr() {
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
 
-void setup_wifi() {
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting to Wifi");
+  // 15ms Software Debounce to prevent electrical noise spikes from WiFi
+  if (interrupt_time - last_interrupt_time > 15) {
+    ++hallCount;
+  }
   
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".Status:");
-    Serial.println(WiFi.status());
-  }
-
-  Serial.println("\nWiFi connected.");
-
-  espClient.setInsecure();        //??? Tell esp32 to trust the HiveMQ certificate
+  last_interrupt_time = interrupt_time;
 }
 
-void setup_pulseSensor() {
-  if (!pulseSensor.begin(Wire, I2C_SPEED_FAST)) { //Use default I2C port, 400kHz speed
-    Serial.println("MAX30105 was not found. Please check wiring/power. ");
-    while (1);
-  }
-  Serial.println("Place your index finger on the sensor with steady pressure.");
+void IRAM_ATTR onHallTimer() {
+  HallData data;
+  data.count = hallCount;
+  hallCount = 0;      // reset hallCount
 
-  pulseSensor.setup(60, 32, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 32-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
-  pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
-}
-
-
-void mqtt_reconnect() {
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-
-    String clientId = "ESP32Client - peiben";
-
-    if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
-      Serial.print("Connected!");
-    } else {
-      Serial.print("Failed, rc=");
-      Serial.print(client.state());
-      Serial.println("Try again in 2 seconds");
-      delay(2000);
-    }
-  }
-}
-
-
-void IRAM_ATTR onTimer() {
-  mqtt_send_hallCount = true;
+  // Push to core 0 without blocking
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  xQueueSendFromISR(hallQueue, &data, &xHigherPriorityTaskWoken);
+  if (xHigherPriorityTaskWoken) portYIELD_FROM_ISR();
 }
 
 void IRAM_ATTR onPulseTimer() {
-  mqtt_send_pulse = true;
+  PulseData data;
+  data.bpm = beatsPerMinute;
+  data.bpmAvg = beatAvg;
+
+  // Push to core 0 without blocking
+  BaseType_t xHighPriorityTaskWorken = pdFALSE;
+  xQueueSendFromISR(pulseQueue, &data, &xHighPriorityTaskWorken);
+  if (xHighPriorityTaskWorken) portYIELD_FROM_ISR();
 }
 
-void ARDUINO_ISR_ATTR isr() {
-  ++hallCount;
-  static long lastHallPulse = 0;
-  angularSpeed = PI * 1000.0 / (millis() - lastHallPulse);
-  lastHallPulse = millis();
-}
-
+// --------- CORE 1: Pulse Calculations ---------
 void calcBPM() {
   static bool increasing = false;
   static const float LPF_Beta = (1.0 / fSample) / ((1.0 / fSample) + (1.0 / (2*PI*fCutoff)));
@@ -123,7 +114,7 @@ void calcBPM() {
     // maximum detected, count as beat
     if (pulseSensorIr < irPrev) {
       increasing = false;
-      Serial.println(">DIRECTION:0");
+      //Serial.println(">DIRECTION:0");
 
       const unsigned long now = millis();
       beatsPerMinute = 60000.0 / (now - lastBeat);
@@ -137,12 +128,78 @@ void calcBPM() {
   else {
     if (pulseSensorIr > irPrev) {
       increasing = true;
-      Serial.println(">DIRECTION:1");
+      //Serial.println(">DIRECTION:1");
     }
   }
 
   irPrev = pulseSensorIr;
 }
+
+// --------- CORE 0: MQTT & Networking worker ---------
+void mqttWorkerTask(void * pvParameters) {
+  #ifdef WIFI
+  WiFi.begin(ssid, password);
+  // Serial.print("Connecting to Wifi");
+
+  while (WiFi.status() != WL_CONNECTED) {
+    vTaskDelay(pdMS_TO_TICKS(500));
+    // Serial.print(".Status:");
+    // Serial.println(WiFi.status());
+  }
+  
+  espClient.setInsecure();
+  client.setServer(mqtt_server, mqtt_port);
+  
+  bool startup_message_sent = false;
+  HallData rxHall;
+  PulseData rxPulse;
+
+  for(;;) {
+    if (!client.connected()) {
+      String clientId = "ESP32Client-peiben";
+      if (client.connect(clientId.c_str(), mqtt_user, mqtt_pass)) {
+        if (!startup_message_sent) {
+          client.publish("data/debug", "STARTED UP...");
+          startup_message_sent = true;
+        }
+      } else {
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        continue;
+      }
+    }
+
+    client.loop(); // Keep background TLS connection alive
+
+    // Read and parse incoming Hall sensor metrics from Core 1
+    // if there is no task, wait 0 ticks, and move on to the next line
+    if (xQueueReceive(hallQueue, &rxHall, 0) == pdTRUE) {
+      client.publish("data/hallCount", String(rxHall.count).c_str());
+    }
+
+    // Read and parse incoming Pulse readings from Core 1
+    if (xQueueReceive(pulseQueue, &rxPulse, 0) == pdTRUE) {
+      client.publish("data/bpm", String(rxPulse.bpm, 0).c_str());
+      client.publish("data/bpmAvg", String(rxPulse.bpmAvg, 0).c_str());
+    }
+    
+    #endif
+    vTaskDelay(pdMS_TO_TICKS(5)); // Leave room for core 0 system tasks
+  }
+}
+
+void setup_pulseSensor() {
+  if (!pulseSensor.begin(Wire, I2C_SPEED_FAST)) { //Use default I2C port, 400kHz speed
+    Serial.println("MAX30105 was not found. Please check wiring/power. ");
+    while (1);
+  }
+  Serial.println("Place your index finger on the sensor with steady pressure.");
+
+  pulseSensor.setup(60, 32, 2, 1600, 411, 4096); //Configure sensor with 12mA LED current, 32-sample averaging, enable IR LED, 400Hz sample rate, 411µs pulse width (18 bit res.), 4096pA ADC range
+  pulseSensor.setPulseAmplitudeRed(0);  //Turn off red LED (this can't be done through setup())
+}
+
+
+
 
 /*
 void calcBPMOld() {
@@ -171,18 +228,18 @@ void calcBPMOld() {
 
 void setup() {
   Serial.begin(921600);
-  Serial.println("Test");
-  pinMode(hallPin, INPUT);
-  attachInterrupt(hallPin, isr, FALLING);
 
-  #ifdef WIFI
-  setup_wifi();
-  client.setServer(mqtt_server, mqtt_port);
-  #endif
+  // Use INPUT_PULLUP to mitigate RF interference spikes
+  pinMode(hallPin, INPUT_PULLUP);
+  attachInterrupt(hallPin, magnetIsr, FALLING);
 
-  // HallCount timer setup
+  // Instantiating thread-safe messaging buffers
+  hallQueue = xQueueCreate(5, sizeof(HallData));
+  pulseQueue = xQueueCreate(5, sizeof(PulseData));
+
+  // Initialize HallCount timer
   myTimer = timerBegin(0, 80, true);    // Timer 0: 80MHz / 80 = 1MHz (1 microsecond per tick)
-  timerAttachInterrupt(myTimer, &onTimer, true);  // Egde trigger->true
+  timerAttachInterrupt(myTimer, &onHallTimer, true);  // Egde trigger->true
   timerAlarmWrite(myTimer, 4 * 1000000, true);
   timerAlarmEnable(myTimer);
 
@@ -194,38 +251,33 @@ void setup() {
 
   setup_pulseSensor();
 
+  // Spawning Network Engine strictly on Core 0
+  xTaskCreatePinnedToCore(
+    mqttWorkerTask,
+    "MQTT_Netowrk_Task",
+    10240,  // Expand stack space for deep TLS/SSL packets
+    NULL,
+    1,
+    &MQTTTaskHandle,
+    0       // Core 0
+  );
+
 }
 
 void loop() {
-
-  #ifdef WIFI
-  if (!client.connected()) {
-    mqtt_reconnect();
-  }
-
-  if (!startup_message_sent) {
-    client.publish("data/debug", "STARTED UP...");
-    startup_message_sent = true;
-  }
-
-  if (mqtt_send_hallCount) {
-    mqtt_send_hallCount = false;
-    client.publish("data/hallCount", String(hallCount).c_str());
-    client.publish("data/angularSpeed", String(angularSpeed, 3).c_str());
-    hallCount = 0;
-  }
-
-  if (mqtt_send_pulse) {
-    client.publish("data/bpm", String(beatsPerMinute, 0).c_str());
-    client.publish("data/bpmAvg", String(beatAvg, 0).c_str());
-  }
-  #endif
-
+  // Main Thread automatically executes on Core 1
   calcBPM();
-  Serial.print(">BPM:");
-  Serial.println(beatsPerMinute);
-  Serial.print(">Avg BPM:");
-  Serial.println(beatAvg);
-  Serial.print(">IR:");
-  Serial.println(pulseSensorIr);
+
+  // Local serial output for debugging (does not impact WiFi stability)
+
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint > 250) {
+    Serial.print(">BPM:");
+    Serial.println(beatsPerMinute);
+    Serial.print(">Avg BPM:");
+    Serial.println(beatAvg);
+    Serial.print(">IR:");
+    Serial.println(pulseSensorIr);
+    lastPrint = millis();
+  }
 }
